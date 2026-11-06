@@ -1,0 +1,105 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { prepararBaseDePruebas } from '../apoyo/base-de-pruebas.js';
+
+const DIRECTORIO_MIGRACIONES = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)), '../../../base-datos/migraciones',
+);
+
+let aplicarMigraciones: typeof import('../../src/infraestructura/migraciones/ejecutor.js')['aplicarMigraciones'];
+let consultarEstado: typeof import('../../src/infraestructura/migraciones/ejecutor.js')['consultarEstado'];
+let cerrarPiscina: typeof import('../../src/infraestructura/conexion.js')['cerrarPiscina'];
+let obtenerPiscina: typeof import('../../src/infraestructura/conexion.js')['obtenerPiscina'];
+
+beforeAll(async () => {
+  await prepararBaseDePruebas();
+  ({ aplicarMigraciones, consultarEstado } = await import('../../src/infraestructura/migraciones/ejecutor.js'));
+  ({ cerrarPiscina, obtenerPiscina } = await import('../../src/infraestructura/conexion.js'));
+});
+
+afterAll(async () => { await cerrarPiscina(); });
+
+describe('ejecutor de migraciones', () => {
+  it('aplica todos los archivos del directorio en el primer paso', async () => {
+    const archivos = (await readdir(DIRECTORIO_MIGRACIONES)).filter((n) => n.endsWith('.sql'));
+    const resultado = await aplicarMigraciones();
+    expect(resultado.aplicadas).toHaveLength(archivos.length);
+    expect(resultado.omitidas).toHaveLength(0);
+  });
+
+  it('deja el esquema del pliego completo, con sus 14 estados', async () => {
+    const { rows: tablas } = await obtenerPiscina().query<{ total: string }>(
+      `SELECT count(*)::text AS total FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
+    );
+    /*
+     * 41 tablas del esquema entregado, mas la de control de migraciones,
+     * mas las cinco que agregan las migraciones 0016-0018 para cubrir lo
+     * que el pliego pide y el esquema no traia: `validacion_tecnica`,
+     * `proveedor`, `compra`, `compra_detalle` y `entrega`.
+     *
+     * Es un numero fijo a proposito: si aparece una tabla que nadie
+     * declaro, esta prueba lo dice.
+     */
+    expect(Number(tablas[0]!.total)).toBe(47);
+
+    const { rows: estados } = await obtenerPiscina().query<{ etiqueta: string }>(
+      `SELECT e.enumlabel AS etiqueta FROM pg_enum e
+         JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'estado_orden'
+       ORDER BY e.enumsortorder`,
+    );
+    // Los 13 del pliego, en su orden, mas 'autorizada' (migracion 0024)
+    // justo despues de 'esperando_autorizacion'. Ninguna tabla nueva.
+    expect(estados.map((fila) => fila.etiqueta)).toEqual([
+      'registrada', 'asignada', 'en_ruta', 'en_cola_taller', 'en_diagnostico', 'cotizada',
+      'esperando_autorizacion', 'autorizada', 'esperando_repuesto', 'en_reparacion', 'finalizada',
+      'entregada', 'cerrada_sin_reparar', 'anulada',
+    ]);
+  });
+
+  it('es idempotente: volver a ejecutarla no aplica nada', async () => {
+    const resultado = await aplicarMigraciones();
+    expect(resultado.aplicadas).toHaveLength(0);
+    expect(resultado.omitidas.length).toBeGreaterThan(0);
+  });
+
+  it('crea la columna generada de busqueda sin acentos ni mayusculas', async () => {
+    const piscina = obtenerPiscina();
+    await piscina.query(
+      `INSERT INTO centro (id, nombre) VALUES ('11111111-1111-4111-8111-111111111111', 'Centro de prueba')`,
+    );
+    await piscina.query(
+      `INSERT INTO cliente (id_centro, nombres, apellidos)
+       VALUES ('11111111-1111-4111-8111-111111111111', 'José', 'Martínez Ñurinda')`,
+    );
+    // Por su centro y no con LIMIT 1: si algun dia esta prueba corriera
+    // sobre una base con clientes, «el primero que salga» seria cualquiera.
+    const { rows } = await piscina.query<{ nombre_busqueda: string }>(
+      `SELECT nombre_busqueda FROM cliente
+        WHERE id_centro = '11111111-1111-4111-8111-111111111111'`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.nombre_busqueda).toBe('jose martinez nurinda');
+    await piscina.query('DELETE FROM cliente');
+    await piscina.query('DELETE FROM centro');
+  });
+
+  it('se niega a continuar si una migracion ya aplicada cambio de contenido', async () => {
+    const copia = await mkdtemp(path.join(tmpdir(), 'servitotal-migraciones-'));
+    for (const nombre of (await readdir(DIRECTORIO_MIGRACIONES)).filter((n) => n.endsWith('.sql'))) {
+      await writeFile(
+        path.join(copia, nombre),
+        await readFile(path.join(DIRECTORIO_MIGRACIONES, nombre), 'utf8'),
+      );
+    }
+    await writeFile(path.join(copia, '0002_tipos_enumerados.sql'), '-- contenido alterado\n');
+
+    await expect(aplicarMigraciones(copia)).rejects.toThrow(/su contenido cambio/);
+
+    const estado = await consultarEstado(copia);
+    expect(estado.find((fila) => fila.nombre === '0002_tipos_enumerados.sql')?.alterada).toBe(true);
+  });
+});

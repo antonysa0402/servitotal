@@ -1,0 +1,32 @@
+{
+  "name": "servitotal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sistema web de gestion de ordenes de servicio - ServiTotal, Distrito VI Managua",
+  "workspaces": [
+    "compartido",
+    "servidor",
+    "panel"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "migrar": "npm run migrar --workspace servidor",
+    "migrar:estado": "npm run migrar:estado --workspace servidor",
+    "sembrar": "npm run sembrar --workspace servidor",
+    "prueba": "npm run prueba --workspace servidor",
+    "prueba:unidad": "npm run prueba:unidad --workspace servidor",
+    "verificar-tipos": "tsc -b compartido servidor && tsc -p servidor/tsconfig.pruebas.json && tsc -p panel/tsconfig.json",
+    "iniciar": "npm run iniciar --workspace servidor",
+    "desarrollo": "npm run desarrollo --workspace servidor",
+    "prueba:panel": "npm run prueba --workspace panel",
+    "panel": "npm run iniciar --workspace panel",
+    "construir": "npm run construir --workspace compartido && npm run construir --workspace servidor"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

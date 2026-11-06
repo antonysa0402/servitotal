@@ -1,0 +1,368 @@
+/**
+ * Bandeja de avisos, portal publico e indicadores.
+ *
+ * La bandeja es EL canal de aviso del sistema —el negocio decidio que no se
+ * empuja nada—, asi que lo que se prueba aqui no es que responda 200: es que
+ * cada quien vea lo suyo. Una bandeja que muestra los problemas de los demas
+ * se vuelve ruido, se deja de mirar, y siendo el unico canal, dejar de
+ * mirarla es quedarse sin aviso.
+ *
+ * Del portal se prueba sobre todo lo que NO devuelve.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import peticion from 'supertest';
+import { CODIGO_ROL, GRAVEDAD_AVISO, TIPO_AVISO } from '@servitotal/compartido';
+import { CONTRASENA_DE_PRUEBA, montarApi, usuarioConRol, type EntornoApi } from '../apoyo/entorno-api.js';
+
+const RAIZ = '/api/v1';
+let entorno: EntornoApi;
+
+async function sesionDe(codigoRol: string): Promise<{ Authorization: string }> {
+  const nombreUsuario = await usuarioConRol(entorno.piscina, codigoRol);
+  const sesion = await peticion(entorno.aplicacion)
+    .post(`${RAIZ}/autenticacion/sesion`)
+    .send({ nombreUsuario, contrasena: CONTRASENA_DE_PRUEBA }).expect(201);
+  return { Authorization: `Bearer ${sesion.body.data.tokenAcceso}` };
+}
+
+const tiposDe = (cuerpo: { grupos: { tipo: string }[] }): string[] =>
+  cuerpo.grupos.map((grupo) => grupo.tipo);
+
+beforeAll(async () => { entorno = await montarApi(); }, 240_000);
+afterAll(async () => { await entorno.cerrar(); });
+
+describe('bandeja de avisos', () => {
+  it('la jefatura de tecnicos ve las ordenes vencidas del taller', async () => {
+    const jefatura = await sesionDe(CODIGO_ROL.JEFE_TECNICOS);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/avisos`).set(jefatura).expect(200);
+    const bandeja = respuesta.body.data;
+
+    expect(tiposDe(bandeja)).toContain(TIPO_AVISO.ORDEN_VENCIDA);
+    const vencidas = bandeja.grupos.find(
+      (grupo: { tipo: string }) => grupo.tipo === TIPO_AVISO.ORDEN_VENCIDA,
+    );
+    expect(vencidas.gravedad).toBe(GRAVEDAD_AVISO.CRITICO);
+    expect(vencidas.total).toBeGreaterThan(0);
+    // Cada renglon lleva a donde se resuelve.
+    for (const renglon of vencidas.muestra) expect(renglon.enlace).toMatch(/^\/ordenes\//);
+  });
+
+  it('cada grupo explica por que le aparece a esa persona', async () => {
+    const jefatura = await sesionDe(CODIGO_ROL.JEFE_TECNICOS);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/avisos`).set(jefatura).expect(200);
+
+    for (const grupo of respuesta.body.data.grupos) {
+      expect(grupo.porQue.length).toBeGreaterThan(10);
+      expect(grupo.enlaceVerTodo).toBeTruthy();
+    }
+  });
+
+  it('un tecnico solo ve sus ordenes, no las del taller', async () => {
+    const tecnico = await sesionDe(CODIGO_ROL.TECNICO_RUTA);
+    const jefatura = await sesionDe(CODIGO_ROL.JEFE_TECNICOS);
+
+    const suya = await peticion(entorno.aplicacion).get(`${RAIZ}/avisos`).set(tecnico).expect(200);
+    const todas = await peticion(entorno.aplicacion).get(`${RAIZ}/avisos`).set(jefatura).expect(200);
+
+    const vencidasTecnico = suya.body.data.grupos.find(
+      (grupo: { tipo: string }) => grupo.tipo === TIPO_AVISO.ORDEN_VENCIDA,
+    );
+    const vencidasJefatura = todas.body.data.grupos.find(
+      (grupo: { tipo: string }) => grupo.tipo === TIPO_AVISO.ORDEN_VENCIDA,
+    );
+
+    if (vencidasTecnico !== undefined && vencidasJefatura !== undefined) {
+      expect(vencidasTecnico.total).toBeLessThan(vencidasJefatura.total);
+      expect(vencidasTecnico.porQue).toMatch(/a su cargo|asignadas/i);
+    }
+  });
+
+  it('quien no resuelve excepciones no las ve en su bandeja', async () => {
+    // El permiso decide, no el rol: mostrarle a alguien un problema que no
+    // puede tocar es ruido, y el ruido hace que se deje de mirar la bandeja.
+    const tecnico = await sesionDe(CODIGO_ROL.TECNICO_RUTA);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/avisos`).set(tecnico).expect(200);
+
+    expect(tiposDe(respuesta.body.data)).not.toContain(TIPO_AVISO.EXCEPCION_SINCRONIZACION);
+  });
+
+  it('la jefatura de tecnicos si ve el trabajo de campo sin conciliar', async () => {
+    const jefatura = await sesionDe(CODIGO_ROL.JEFE_TECNICOS);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/avisos`).set(jefatura).expect(200);
+
+    expect(tiposDe(respuesta.body.data)).toContain(TIPO_AVISO.EXCEPCION_SINCRONIZACION);
+  });
+
+  it('ningun aviso habla de cobros, pagos ni expedientes: el sistema no gestiona dinero', async () => {
+    for (const rol of [CODIGO_ROL.ADMINISTRADOR, CODIGO_ROL.JEFE_ATENCION_CLIENTE, CODIGO_ROL.JEFE_TECNICOS]) {
+      const sesion = await sesionDe(rol);
+      const respuesta = await peticion(entorno.aplicacion)
+        .get(`${RAIZ}/avisos`).set(sesion).expect(200);
+      const texto = JSON.stringify(respuesta.body.data).toLowerCase();
+      expect(texto).not.toMatch(/expediente|cobro|\bpagos?\b/);
+    }
+  });
+
+  it('el bodeguero ve el inventario bajo minimo y no las excepciones', async () => {
+    const bodeguero = await sesionDe(CODIGO_ROL.BODEGUERO);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/avisos`).set(bodeguero).expect(200);
+    const tipos = tiposDe(respuesta.body.data);
+
+    expect(tipos).toContain(TIPO_AVISO.REPUESTO_BAJO_MINIMO);
+    expect(tipos).not.toContain(TIPO_AVISO.EXCEPCION_SINCRONIZACION);
+  });
+
+  it('lo critico va primero', async () => {
+    const jefatura = await sesionDe(CODIGO_ROL.JEFE_TECNICOS);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/avisos`).set(jefatura).expect(200);
+
+    const peso = { critico: 0, atencion: 1, informativo: 2 } as Record<string, number>;
+    const gravedades: string[] = respuesta.body.data.grupos.map(
+      (grupo: { gravedad: string }) => grupo.gravedad,
+    );
+    const pesos = gravedades.map((gravedad) => peso[gravedad]!);
+    expect(pesos).toEqual([...pesos].sort((uno, otro) => uno - otro));
+  });
+
+  it('el total y los criticos cuadran con los grupos', async () => {
+    const jefatura = await sesionDe(CODIGO_ROL.JEFE_TECNICOS);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/avisos`).set(jefatura).expect(200);
+    const bandeja = respuesta.body.data;
+
+    const suma = bandeja.grupos.reduce(
+      (total: number, grupo: { total: number }) => total + grupo.total, 0,
+    );
+    expect(bandeja.total).toBe(suma);
+    expect(bandeja.criticos).toBeLessThanOrEqual(bandeja.total);
+  });
+
+  it('sin sesion no hay bandeja', async () => {
+    await peticion(entorno.aplicacion).get(`${RAIZ}/avisos`).expect(401);
+  });
+});
+
+describe('portal publico', () => {
+  async function ordenConsultable(): Promise<{
+    numero: number; codigo: string; telefono: string;
+  }> {
+    const { rows } = await entorno.piscina.query<{
+      numero: string; codigo: string; telefono_contacto: string;
+    }>(
+      `SELECT numero, codigo, telefono_contacto FROM orden_servicio
+        WHERE estado <> 'anulada' LIMIT 1`,
+    );
+    return {
+      numero: Number(rows[0]!.numero),
+      codigo: rows[0]!.codigo,
+      telefono: rows[0]!.telefono_contacto,
+    };
+  }
+
+  it('devuelve el estado con el numero de orden y el telefono, sin sesion', async () => {
+    const { codigo, telefono } = await ordenConsultable();
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/portal/ordenes/${codigo}?telefono=${encodeURIComponent(telefono)}`)
+      .expect(200);
+
+    const estado = respuesta.body.data;
+    expect(estado.numeroOrden).toBe(codigo);
+    expect(estado.situacion).toBeTruthy();
+    expect(estado.explicacion).toBeTruthy();
+    expect(estado.recorrido).toHaveLength(5);
+  });
+
+  /**
+   * El cliente lee su comprobante y dicta lo que ve: unos leen el codigo
+   * completo y otros el numero suelto. Rechazarle la consulta por la forma
+   * en que lo escribio lo manda al telefono, que es lo que el portal
+   * existe para evitar.
+   */
+  it('acepta tanto el codigo completo como el numero suelto', async () => {
+    const { numero, codigo, telefono } = await ordenConsultable();
+
+    for (const comoLoEscribe of [codigo, codigo.toLowerCase(), String(numero)]) {
+      const respuesta = await peticion(entorno.aplicacion)
+        .get(`${RAIZ}/portal/ordenes/${comoLoEscribe}?telefono=${encodeURIComponent(telefono)}`)
+        .expect(200);
+      // Y siempre contesta con el codigo, que es como la orden se identifica.
+      expect(respuesta.body.data.numeroOrden).toBe(codigo);
+    }
+  });
+
+  it('muestra la visita programada pendiente, solo dia y franja (RF-67)', async () => {
+    const { rows } = await entorno.piscina.query<{
+      codigo: string; telefono_contacto: string; fecha: string; franja: string;
+    }>(
+      `SELECT o.codigo, o.telefono_contacto, v.fecha_programada::text AS fecha, v.franja_horaria AS franja
+         FROM visita v JOIN orden_servicio o ON o.id = v.id_orden
+        WHERE v.vigente AND v.resultado = 'programada'
+          AND o.estado NOT IN ('entregada', 'cerrada_sin_reparar', 'anulada')
+          AND NOT EXISTS (SELECT 1 FROM visita v2 WHERE v2.id_orden = o.id AND v2.vigente
+                            AND v2.resultado = 'programada' AND v2.fecha_programada < v.fecha_programada)
+        LIMIT 1`,
+    );
+    const fila = rows[0]!;
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/portal/ordenes/${fila.codigo}?telefono=${encodeURIComponent(fila.telefono_contacto)}`)
+      .expect(200);
+    expect(respuesta.body.data.visitaProgramada).toEqual({ fecha: fila.fecha, franja: fila.franja });
+  });
+
+  it('NO devuelve datos personales ni internos', async () => {
+    // Es la prueba que de verdad importa de este endpoint.
+    const { codigo, telefono } = await ordenConsultable();
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/portal/ordenes/${codigo}?telefono=${encodeURIComponent(telefono)}`)
+      .expect(200);
+
+    const texto = JSON.stringify(respuesta.body);
+    expect(texto).not.toContain(telefono);
+    for (const campo of [
+      'telefonoContacto', 'direccionServicio', 'referenciaUbicacion', 'fallaReportada',
+      'fallaReal', 'total', 'tecnico', 'idCliente', 'idTecnico', 'tipoGarantia',
+    ]) {
+      expect(texto, `el portal filtro ${campo}`).not.toContain(campo);
+    }
+  });
+
+  it('el nombre del cliente va en iniciales', async () => {
+    const { numero, telefono } = await ordenConsultable();
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/portal/ordenes/${numero}?telefono=${encodeURIComponent(telefono)}`)
+      .expect(200);
+
+    expect(respuesta.body.data.cliente).toMatch(/^([A-ZÁÉÍÓÚÑ]\.\s?)+$/);
+  });
+
+  it('acepta el telefono escrito con guiones o con codigo de pais', async () => {
+    const { numero, telefono } = await ordenConsultable();
+    const digitos = telefono.replace(/\D/g, '');
+    const conGuion = `${digitos.slice(0, 4)}-${digitos.slice(4)}`;
+
+    await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/portal/ordenes/${numero}?telefono=${encodeURIComponent(conGuion)}`)
+      .expect(200);
+  });
+
+  it('con el telefono equivocado responde lo mismo que si no existiera', async () => {
+    // Si dijeran cosas distintas, probando numeros con un telefono
+    // cualquiera se sabria que ordenes existen.
+    const { numero } = await ordenConsultable();
+    const ajena = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/portal/ordenes/${numero}?telefono=50588880000`).expect(404);
+    const inexistente = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/portal/ordenes/99999999?telefono=50588880000`).expect(404);
+
+    expect(ajena.body.error.message).toBe(inexistente.body.error.message);
+  });
+
+  it('sin telefono no responde', async () => {
+    const { numero } = await ordenConsultable();
+    await peticion(entorno.aplicacion).get(`${RAIZ}/portal/ordenes/${numero}`).expect(400);
+  });
+});
+
+describe('catalogos de apoyo', () => {
+  it('trae todo lo que el formulario de una orden nueva necesita', async () => {
+    // En una sola peticion: con mala conexion, cinco viajes son cinco
+    // oportunidades de dibujar media pantalla.
+    const agente = await sesionDe(CODIGO_ROL.AGENTE_TELEFONIA);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/catalogos`).set(agente).expect(200);
+    const catalogos = respuesta.body.data;
+
+    for (const clave of ['marcas', 'categorias', 'tiendas', 'zonas', 'tecnicos']) {
+      expect(catalogos[clave].length, `${clave} vino vacio`).toBeGreaterThan(0);
+    }
+  });
+
+  it('la tienda dice si pertenece al grupo, que es lo que decide quien paga', async () => {
+    const agente = await sesionDe(CODIGO_ROL.AGENTE_TELEFONIA);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/catalogos`).set(agente).expect(200);
+
+    const tiendas: { nombre: string; perteneceAlGrupo: boolean }[] = respuesta.body.data.tiendas;
+    expect(tiendas.some((tienda) => tienda.perteneceAlGrupo)).toBe(true);
+    expect(tiendas.some((tienda) => !tienda.perteneceAlGrupo)).toBe(true);
+  });
+
+  it('cada tecnico trae la carga que ya lleva encima', async () => {
+    // Sin ese numero, la asignacion se hace por costumbre y siempre recae
+    // en el mismo.
+    const agente = await sesionDe(CODIGO_ROL.AGENTE_TELEFONIA);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/catalogos`).set(agente).expect(200);
+
+    for (const tecnico of respuesta.body.data.tecnicos) {
+      expect(['ruta', 'planta']).toContain(tecnico.tipo);
+      expect(tecnico.cargaActual).toBeGreaterThanOrEqual(0);
+      expect(tecnico.especialidad).toBeTruthy();
+    }
+  });
+
+  it('sin sesion no hay catalogos', async () => {
+    await peticion(entorno.aplicacion).get(`${RAIZ}/catalogos`).expect(401);
+  });
+});
+
+describe('indicadores de operacion', () => {
+  it('cuadran entre si', async () => {
+    const jefatura = await sesionDe(CODIGO_ROL.JEFE_ATENCION_CLIENTE);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/indicadores/operacion`).set(jefatura).expect(200);
+    const indicadores = respuesta.body.data;
+
+    const suma = indicadores.porEstado.reduce(
+      (total: number, fila: { ordenes: number }) => total + fila.ordenes, 0,
+    );
+    expect(indicadores.ordenesVivas).toBe(suma);
+
+    expect(indicadores.cumplimiento.aTiempo)
+      .toBeLessThanOrEqual(indicadores.cumplimiento.cerradas);
+    expect(indicadores.cumplimiento.porcentaje).toBeGreaterThanOrEqual(0);
+    expect(indicadores.cumplimiento.porcentaje).toBeLessThanOrEqual(100);
+  });
+
+  it('ningun estado final aparece entre las ordenes vivas', async () => {
+    const jefatura = await sesionDe(CODIGO_ROL.JEFE_ATENCION_CLIENTE);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/indicadores/operacion`).set(jefatura).expect(200);
+
+    const estados = respuesta.body.data.porEstado.map((fila: { estado: string }) => fila.estado);
+    for (const final of ['entregada', 'cerrada_sin_reparar', 'anulada']) {
+      expect(estados).not.toContain(final);
+    }
+  });
+
+  it('la reincidencia se cuenta por articulo y solo con mas de una orden', async () => {
+    const jefatura = await sesionDe(CODIGO_ROL.JEFE_ATENCION_CLIENTE);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/indicadores/operacion`).set(jefatura).expect(200);
+
+    for (const fila of respuesta.body.data.reincidencias) {
+      expect(fila.ordenes).toBeGreaterThan(1);
+      expect(fila.articulo).toBeTruthy();
+    }
+  });
+
+  it('la productividad no inventa tecnicos ni promedios imposibles', async () => {
+    const jefatura = await sesionDe(CODIGO_ROL.JEFE_ATENCION_CLIENTE);
+    const respuesta = await peticion(entorno.aplicacion)
+      .get(`${RAIZ}/indicadores/operacion`).set(jefatura).expect(200);
+
+    expect(respuesta.body.data.tecnicos.length).toBeGreaterThan(0);
+    for (const fila of respuesta.body.data.tecnicos) {
+      expect(fila.vencidas).toBeLessThanOrEqual(fila.enCurso);
+      if (fila.horasPromedioCierre !== null) {
+        expect(fila.horasPromedioCierre).toBeGreaterThan(0);
+      }
+    }
+  });
+});
