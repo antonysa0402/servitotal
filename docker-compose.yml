@@ -13,7 +13,7 @@ services:
     environment:
       POSTGRES_DB: servitotal
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
     volumes:
       - datos-bd:/var/lib/postgresql/data
     healthcheck:
@@ -34,7 +34,7 @@ services:
       DATABASE_PORT: 5432
       DATABASE_NAME: servitotal
       DATABASE_USER: postgres
-      DATABASE_PASSWORD: 123456
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
       JWT_SECRET: clave-local-de-desarrollo-cambiela-en-produccion-123456
     ports:
       - "8080:3000"

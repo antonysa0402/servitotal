@@ -1,0 +1,24 @@
+name: Trasladar fuente del servicio existente de Render
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: traslado-fuente-render
+  cancel-in-progress: false
+jobs:
+  trasladar:
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Conservar servicio y entorno y cambiar solo la fuente Git
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+        run: node scripts/trasladar-fuente-render.mjs

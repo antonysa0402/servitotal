@@ -5,6 +5,7 @@
  * explicitas: aqui se montan, y es el unico punto donde se conocen entre si.
  */
 import express, { type Express } from 'express';
+import { obtenerPiscina } from './infraestructura/conexion.js';
 import { asignarCorrelacion, crearExigirSesion } from './comun/autenticacion.js';
 import { manejarErrores, manejarRutaDesconocida } from './comun/manejador-errores.js';
 import { montarPanelEstatico } from './comun/panel-estatico.js';
@@ -77,6 +78,15 @@ export function construirAplicacion(): Express {
   for (const raiz of RAICES_API) {
     aplicacion.get(`${raiz}/salud`, (_peticion, respuesta) => {
       respuesta.json({ datos: { estado: 'disponible' } });
+    });
+    aplicacion.get(`${raiz}/listo`, async (_peticion, respuesta) => {
+      try {
+        const consulta = { text: 'SELECT 1', query_timeout: 3000 };
+        await obtenerPiscina().query(consulta);
+        respuesta.json({ datos: { estado: 'listo' } });
+      } catch {
+        respuesta.status(503).json({ datos: { estado: 'no_disponible' } });
+      }
     });
 
     aplicacion.use(raiz, rutasPublicasDeSeguridad());
