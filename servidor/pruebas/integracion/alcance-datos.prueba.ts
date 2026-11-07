@@ -140,8 +140,17 @@ describe('ordenes: un tecnico solo ve las suyas', () => {
 
     expect(respuesta.status).toBe(403);
     expect(respuesta.body.data).toBeUndefined();
-    // Y no se filtra nada del cliente en el mensaje de error.
-    expect(JSON.stringify(respuesta.body)).not.toMatch(/\d{8}/);
+    // El UUID de correlacion puede contener ocho digitos seguidos sin ser
+    // un telefono. Verificar el contrato completo impide datos adicionales
+    // del cliente sin confundir el identificador de seguimiento con una fuga.
+    expect(respuesta.body).toEqual({
+      success: false,
+      error: {
+        code: 'SIN_PERMISO',
+        message: 'Esta orden no esta asignada a usted.',
+        correlationId: expect.any(String),
+      },
+    });
   });
 
   it('las evidencias de la orden ajena tampoco se entregan', async () => {
