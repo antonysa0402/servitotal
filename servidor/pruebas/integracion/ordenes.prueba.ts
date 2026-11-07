@@ -438,8 +438,31 @@ describe('agenda: la doble programacion es imposible', () => {
   it('reprogramar libera la franja anterior', async () => {
     const orden = await crearOrden({ modalidad: MODALIDAD_SERVICIO.RUTA });
     const otra = await crearOrden({ modalidad: MODALIDAD_SERVICIO.RUTA });
-    const idTec = await idTecnico('ruta');
-    const franja = { idTecnico: idTec, fechaProgramada: '2026-11-11', franjaHoraria: '15:00-17:00' };
+    const fechaProgramada = '2026-11-11';
+    const franjaHoraria = '15:00-17:00';
+
+const { rows: tecnicosDisponibles } = await entorno.piscina.query<{ id: string }>(
+  `SELECT t.id
+     FROM tecnico t
+    WHERE t.tipo = 'ruta'
+      AND t.activo
+      AND NOT EXISTS (
+        SELECT 1
+          FROM visita v
+         WHERE v.id_tecnico = t.id
+           AND v.fecha_programada = $1::date
+           AND v.franja_horaria = $2
+           AND v.vigente
+      )
+    ORDER BY t.id
+    LIMIT 1`,
+  [fechaProgramada, franjaHoraria],
+);
+
+expect(tecnicosDisponibles).toHaveLength(1);
+
+const idTec = tecnicosDisponibles[0]!.id;
+const franja = { idTecnico: idTec, fechaProgramada, franjaHoraria };
 
     await peticion(entorno.aplicacion).post(`${RAIZ}/ordenes/${orden.id}/visitas`)
       .set(jefeTecnicos).send(franja).expect(201);

@@ -59,7 +59,7 @@ const rutaDescriptor = (idCarga: string): string => path.join(RAIZ, CARPETA_PARC
 
 /** Ruta definitiva: una carpeta por orden, para que sea navegable a mano. */
 function rutaFinal(idOrden: string, idCarga: string, clave: string): string {
-  return path.join('ordenes', idOrden, `${clave}-${idCarga}`);
+  return path.posix.join('ordenes', idOrden, `${clave}-${idCarga}`);
 }
 
 export async function iniciarCarga(descriptor: DescriptorDeCarga): Promise<EstadoCarga> {
