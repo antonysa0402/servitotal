@@ -438,7 +438,9 @@ describe('agenda: la doble programacion es imposible', () => {
   it('reprogramar libera la franja anterior', async () => {
     const orden = await crearOrden({ modalidad: MODALIDAD_SERVICIO.RUTA });
     const otra = await crearOrden({ modalidad: MODALIDAD_SERVICIO.RUTA });
-    const fechaProgramada = '2026-11-11';
+    const fechaProgramada = new Date(Date.now() + 900 * 86_400_000)
+  .toISOString()
+  .slice(0, 10);
     const franjaHoraria = '15:00-17:00';
 
 const { rows: tecnicosDisponibles } = await entorno.piscina.query<{ id: string }>(
