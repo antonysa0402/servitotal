@@ -182,17 +182,6 @@ table.d td a:hover { text-decoration: underline; }
 .btn.chico { padding: 4px 9px; font-size: 11px; }
 .btn.peligro { background: var(--red); color: #fff; border-color: var(--red); }
 
-/* Que el panel sea usable en una pantalla estrecha; el prototipo era fijo. */
-@media (max-width: 900px) {
-  .app { display: block; }
-  .side { width: auto; flex: none; display: flex; flex-wrap: wrap; padding: 8px; }
-  .side .who, .side .sep { display: none; }
-  .side a { border-left: 0; border-bottom: 3px solid transparent; padding: 7px 11px; }
-  .side a.on { border-left: 0; border-bottom-color: var(--amber); }
-  .g2, .g3, .g4, .g5 { grid-template-columns: 1fr; }
-  .body { padding: 14px; }
-}
-
 /*
  * La aplicacion del tecnico ocupa la pantalla entera.
  *
@@ -236,10 +225,192 @@ table.d td a:hover { text-decoration: underline; }
 label.opcion{display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:normal;font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:var(--ink);margin:4px 0}
 label.opcion input{width:auto;margin:0}
 
+/*
+ * Panel en pantallas estrechas (celular y tableta).
+ *
+ * En computadora no cambia nada: todo lo de aqui vive dentro de las
+ * consultas de ancho y se limita a `.app:not(.m)`, que es el panel de
+ * oficina. La aplicacion del tecnico (`.app.m`) ya esta hecha para celular
+ * y tiene sus propias reglas.
+ *
+ *  - El menu lateral pasa a ser un cajon que se abre con el boton de la
+ *    barra superior: antes eran veinticinco enlaces amontonados encima del
+ *    contenido.
+ *  - Las tablas se leen como tarjetas: cada fila es un bloque y cada dato
+ *    lleva su encabezado al lado (lo pone Armazon en `data-etiqueta`).
+ *    Antes la tabla era mas ancha que la pantalla y toda la pagina se
+ *    desplazaba de lado.
+ *  - Campos de 16 px: con menos, el celular hace zoom al escribir.
+ */
+.barra-movil, .velo-menu, .cerrar-menu { display: none; }
+
+@media (max-width: 900px) {
+  /* ── barra superior ── */
+  .app:not(.m) .barra-movil {
+    display: flex; align-items: center; gap: 8px;
+    position: sticky; top: 0; z-index: 30;
+    background: var(--ink); color: #fff;
+    padding: 6px 12px 6px 6px;
+    padding-top: calc(6px + env(safe-area-inset-top, 0px));
+    box-shadow: 0 1px 0 #2A3947;
+  }
+  .hamburguesa {
+    position: relative; flex: 0 0 44px; width: 44px; height: 44px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 0; border-radius: 4px; color: #fff; cursor: pointer;
+  }
+  .hamburguesa:active, .hamburguesa:focus-visible { background: #1D2C3A; outline: none; }
+  .hamburguesa svg { width: 22px; height: 22px; }
+  .hamburguesa .punto {
+    position: absolute; top: 9px; right: 8px; width: 10px; height: 10px;
+    border-radius: 50%; background: var(--red); border: 2px solid var(--ink);
+  }
+  .barra-movil .brand { font-size: 17px; color: #fff; white-space: nowrap; }
+  .barra-movil-pantalla {
+    flex: 1; min-width: 0; text-align: right;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #B9C6D2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .barra-movil-pantalla .code {
+    background: #2A3947; color: #fff; padding: 2px 6px; border-radius: 2px;
+    font-size: 9.5px; margin-left: 6px;
+  }
+  .app:not(.m) .crumb { display: none; }
+
+  /* ── el menu como cajon ── */
+  .app:not(.m) { display: block; }
+  .app:not(.m) .side {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 40;
+    width: min(84vw, 300px); display: block;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 0 calc(20px + env(safe-area-inset-bottom, 0px));
+    overflow-y: auto; overscroll-behavior: contain;
+    font-size: 14px;
+    transform: translateX(-102%); visibility: hidden;
+    transition: transform .22s ease, visibility 0s linear .22s;
+  }
+  .app:not(.m) .side.abierta {
+    transform: none; visibility: visible;
+    transition: transform .22s ease;
+    box-shadow: 6px 0 24px rgba(0, 0, 0, .3);
+  }
+  .app:not(.m) .side .who { display: flex; align-items: flex-start; gap: 8px; padding: 2px 10px 13px 18px; }
+  .app:not(.m) .side .who > div { flex: 1; min-width: 0; }
+  .app:not(.m) .side .who b { font-size: 14px; }
+  .app:not(.m) .side .who span { font-size: 10.5px; }
+  .app:not(.m) .side .sep { display: block; padding: 14px 18px 5px; font-size: 9.5px; }
+  .app:not(.m) .side a {
+    padding: 11px 18px; border-bottom: 0; border-left: 3px solid transparent;
+  }
+  .app:not(.m) .side a.on { border-left-color: var(--amber); }
+  .app:not(.m) .side a .bdg { font-size: 10px; padding: 1px 6px; }
+  .app:not(.m) .cerrar-menu {
+    display: inline-flex; align-items: center; justify-content: center;
+    flex: 0 0 40px; width: 40px; height: 40px; margin-top: -6px;
+    background: transparent; border: 0; border-radius: 4px; color: #B9C6D2; cursor: pointer;
+  }
+  .app:not(.m) .cerrar-menu svg { width: 20px; height: 20px; }
+  .app:not(.m) .velo-menu {
+    display: block; position: fixed; inset: 0; z-index: 35;
+    background: rgba(20, 32, 43, .5);
+  }
+
+  /* ── contenido ── */
+  .app:not(.m) .body { padding: 14px 12px 28px; overflow-wrap: anywhere; }
+  .app:not(.m) h2.scr { font-size: 18px; line-height: 1.3; }
+  .app:not(.m) .card { padding: 12px 13px; }
+  .app:not(.m) .card h3 { overflow: hidden; }
+
+  /* Rejillas: una columna, salvo las cifras y los filtros, que van de a dos. */
+  .app:not(.m) .g2, .app:not(.m) .g3 { grid-template-columns: minmax(0, 1fr); }
+  .app:not(.m) .g4, .app:not(.m) .g5 { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
+  .app:not(.m) .g:has(> .kpi) { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: stretch; }
+  .app:not(.m) .kpi { padding: 11px 12px; }
+  .app:not(.m) .kpi b { font-size: 22px; }
+
+  /* Campos y botones del tamano de un dedo. */
+  .app:not(.m) input, .app:not(.m) select, .app:not(.m) textarea { font-size: 16px; padding: 9px 10px; }
+  .app:not(.m) label.opcion input { width: auto; }
+  .app:not(.m) .btn { min-height: 42px; font-size: 14px; justify-content: center; }
+  .app:not(.m) .btn.chico { min-height: 34px; padding: 5px 11px; font-size: 12.5px; }
+  .app:not(.m) .tools .btn { flex: 1 1 auto; }
+  .app:not(.m) .acciones-fila { flex-wrap: wrap; }
+  .app:not(.m) .paginacion { flex-wrap: wrap; font-size: 11.5px; }
+  .app:not(.m) .paginacion .btn { flex: 1 1 auto; }
+  .app:not(.m) .tabs span { padding: 10px 13px; font-size: 13px; }
+
+  /* Tabla sin encabezados (no se puede leer como tarjeta): que se desplace
+     ella, no la pagina. */
+  .app:not(.m) table.d:not(.tabla-tarjetas) {
+    display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+
+  /* Ventanas: hoja que sube desde abajo. */
+  .velo { align-items: flex-end; padding: 0; }
+  .modal {
+    max-width: none; border-radius: 10px 10px 0 0;
+    max-height: 92dvh; overflow-y: auto;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* En tableta la tabla todavia cabe con desplazamiento lateral propio. */
+@media (min-width: 641px) and (max-width: 900px) {
+  .app:not(.m) table.d.tabla-tarjetas {
+    display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* En celular cada fila es una tarjeta. */
+@media (max-width: 640px) {
+  .app:not(.m) table.d.tabla-tarjetas,
+  .app:not(.m) table.d.tabla-tarjetas tbody,
+  .app:not(.m) table.d.tabla-tarjetas tfoot,
+  .app:not(.m) table.d.tabla-tarjetas tr { display: block; width: 100%; }
+  .app:not(.m) table.d.tabla-tarjetas thead { display: none; }
+  .app:not(.m) table.d.tabla-tarjetas tr {
+    padding: 10px 0; border-bottom: 1px solid var(--line);
+  }
+  .app:not(.m) table.d.tabla-tarjetas tbody tr:first-child { padding-top: 2px; }
+  .app:not(.m) table.d.tabla-tarjetas tr:last-child { border-bottom: 0; }
+  /* La etiqueta va a la izquierda en posicion absoluta y el dato fluye
+     normal a su derecha: asi un dato con texto y etiquetas mezclados no se
+     parte en pedazos. */
+  .app:not(.m) table.d.tabla-tarjetas td {
+    display: block; position: relative; min-height: 24px;
+    padding: 3px 0 3px calc(36% + 10px); border: 0;
+    text-align: left !important; font-size: 13px;
+  }
+  .app:not(.m) table.d.tabla-tarjetas td::before {
+    content: attr(data-etiqueta);
+    position: absolute; left: 0; top: 6px; width: 36%;
+    font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; line-height: 1.3;
+    letter-spacing: .5px; text-transform: uppercase; color: var(--soft);
+  }
+  /* El primer dato es el titulo de la tarjeta. */
+  .app:not(.m) table.d.tabla-tarjetas td:first-child {
+    padding-left: 0; font-size: 14px; font-weight: 600; padding-bottom: 5px;
+  }
+  .app:not(.m) table.d.tabla-tarjetas td:first-child::before { display: none; }
+  /* Columnas sin encabezado (acciones) ocupan el ancho entero. */
+  .app:not(.m) table.d.tabla-tarjetas td[data-etiqueta=""] { padding-left: 0; padding-top: 7px; }
+  .app:not(.m) table.d.tabla-tarjetas td[data-etiqueta=""]::before { display: none; }
+  .app:not(.m) table.d.tabla-tarjetas td:empty { display: none; }
+  .app:not(.m) table.d.tabla-tarjetas td[colspan] { padding-left: 0; }
+  .app:not(.m) table.d.tabla-tarjetas td[colspan]::before { display: none; }
+  .app:not(.m) table.d.tabla-tarjetas tr:hover td { background: transparent; }
+  .app:not(.m) table.d.tabla-tarjetas tr.fila-enlace:active { background: #EEF2F6; }
+  .app:not(.m) table.d.tabla-tarjetas td input,
+  .app:not(.m) table.d.tabla-tarjetas td select { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app:not(.m) .side, .app:not(.m) .side.abierta { transition: none; }
+}
+
 /* RF-65: hoja de impresion. Imprimir un reporte (o guardarlo en PDF desde
    el dialogo del navegador) saca solo el contenido, sin menu ni botones. */
 @media print {
-  nav.side, nav.tabbar, .no-imprimir, .stickybar, button { display: none !important; }
+  nav.side, nav.tabbar, .barra-movil, .velo-menu, .no-imprimir, .stickybar, button { display: none !important; }
   .app { display: block !important; }
   body { background: #fff !important; color: #000 !important; }
   .card, table { break-inside: auto; box-shadow: none !important; }
