@@ -167,6 +167,7 @@ export function plazoEnPalabras(
   horasParaVencer: number | null, vencida: boolean,
 ): { texto: string; color?: string } {
   if (horasParaVencer === null) return { texto: '—' };
+  if (!vencida && horasParaVencer < 0) return { texto: '—' };
   if (vencida) {
     const horas = Math.abs(Math.round(horasParaVencer));
     return horas >= 24
